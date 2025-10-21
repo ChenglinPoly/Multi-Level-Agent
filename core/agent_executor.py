@@ -124,10 +124,10 @@ class AgentExecutor:
                 self._save_state(task_id, user_input, 0)
                 print(f"[{self.agent_name}] 初始规划完成")
                 
-                # 发送 thinking 事件
+                # 发送 thinking 事件（完整内容）
                 emitter = get_event_emitter()
                 if emitter.enabled:
-                    emitter.token(f"[{self.agent_name}] 初始规划: {thinking_result[:500]}...")
+                    emitter.token(f"[{self.agent_name}] 初始规划: {thinking_result}")
         
         # 强制工具调用计数器
         max_tool_try = 0
@@ -202,10 +202,10 @@ class AgentExecutor:
                         print("❌ 5次提醒后仍未调用工具，触发thinking分析")
                         thinking_result = self._trigger_thinking(task_id, user_input, is_first=False)
                         
-                        # 发送 thinking 事件
+                        # 发送 thinking 事件（完整内容）
                         emitter = get_event_emitter()
                         if emitter.enabled:
-                            emitter.warn(f"[{self.agent_name}] 强制thinking: {thinking_result[:200] if thinking_result else '分析失败'}...")
+                            emitter.warn(f"[{self.agent_name}] 强制thinking: {thinking_result if thinking_result else '分析失败'}")
                         
                         error_result = {
                             "status": "error",
@@ -299,10 +299,10 @@ class AgentExecutor:
                         self.hierarchy_manager.update_thinking(self.agent_id, thinking_result)
                         self._save_state(task_id, user_input, turn)
                         
-                        # 发送 thinking 事件
+                        # 发送 thinking 事件（完整内容）
                         emitter = get_event_emitter()
                         if emitter.enabled:
-                            emitter.token(f"[{self.agent_name}] 进度分析: {thinking_result[:300]}...")
+                            emitter.token(f"[{self.agent_name}] 进度分析: {thinking_result}")
                         print(f"[{self.agent_name}] Thinking分析已更新")
             
             except Exception as e:

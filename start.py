@@ -115,7 +115,7 @@ def main():
         if not args.jsonl:
             print("🧪 使用默认测试模式")
         args.task_id = args.task_id or "/Users/chenglin/Desktop/research/agent_framwork/vscode_version/MLA_V3/task_test"
-        args.user_input = args.user_input or "基于前面得到的材料，写一个实验报告。"
+        args.user_input = args.user_input or "帮我找一篇量子计算的新闻链接"
     
     # 检查必需参数
     if not args.task_id or not args.user_input:
@@ -211,9 +211,9 @@ def main():
         
         # 输出结果
         if args.jsonl:
-            # JSONL 模式 - 发送 result 和 end 事件
+            # JSONL 模式 - 发送 result 和 end 事件（完整输出）
             ok = result.get('status') == 'success'
-            summary = result.get('output', '')[:500]
+            summary = result.get('output', '')  # 不截断
             emitter.result(ok, summary)
             emitter.end("ok" if ok else "error")
         else:

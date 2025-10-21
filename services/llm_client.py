@@ -84,6 +84,7 @@ class SimpleLLMClient:
         
         # 配置LiteLLM
         litellm.set_verbose = False  # 关闭详细日志
+        litellm.drop_params = True  # 自动丢弃不支持的参数（如Anthropic不支持parallel_tool_calls）
         
         print(f"✅ LLM客户端初始化成功（LiteLLM）")
         print(f"   Base URL: {self.base_url}")
