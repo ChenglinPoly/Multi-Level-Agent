@@ -4,6 +4,13 @@
 Agent执行器 - 使用XML结构化上下文的核心执行逻辑
 """
 
+# Windows兼容性：设置UTF-8编码
+try:
+    from utils.windows_compat import setup_console_encoding
+    setup_console_encoding()
+except ImportError:
+    pass
+
 import json
 from typing import Dict, List
 from services.llm_client import SimpleLLMClient, ChatMessage

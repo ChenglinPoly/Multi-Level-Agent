@@ -383,11 +383,18 @@ class ContextBuilder:
     
     def _build_current_thinking(self, task_id: str, agent_id: str, current: Dict) -> str:
         """构建当前进度思考（从文件读取最新的thinking）"""
-        # ✅ 从_actions.json文件读取
+        # 从_actions.json文件读取（使用正确的路径）
         from pathlib import Path
         import json
+        import hashlib
+        import os
         
-        filepath = Path(__file__).parent.parent / "conversations" / f"{task_id}_{agent_id}_actions.json"
+        # 使用与ConversationStorage相同的路径生成逻辑
+        conversations_dir = Path.home() / "mla_v3" / "conversations"
+        task_hash = hashlib.md5(task_id.encode()).hexdigest()[:8]
+        task_folder = Path(task_id).name if (os.sep in task_id or '/' in task_id or '\\' in task_id) else task_id
+        task_name = f"{task_hash}_{task_folder}"
+        filepath = conversations_dir / f"{task_name}_{agent_id}_actions.json"
         
         try:
             if filepath.exists():
@@ -410,15 +417,22 @@ class ContextBuilder:
     
     def _build_action_history(self, task_id: str, agent_id: str) -> str:
         """构建历史动作记录（从文件读取，XML格式）"""
-        # ✅ 优先使用传入的action_history
+        # 优先使用传入的action_history
         action_history = self.current_action_history
         
         # 如果没有传入，从文件读取
         if not action_history:
             from pathlib import Path
             import json
+            import hashlib
+            import os
             
-            filepath = Path(__file__).parent.parent / "conversations" / f"{task_id}_{agent_id}_actions.json"
+            # 使用与ConversationStorage相同的路径生成逻辑
+            conversations_dir = Path.home() / "mla_v3" / "conversations"
+            task_hash = hashlib.md5(task_id.encode()).hexdigest()[:8]
+            task_folder = Path(task_id).name if (os.sep in task_id or '/' in task_id or '\\' in task_id) else task_id
+            task_name = f"{task_hash}_{task_folder}"
+            filepath = conversations_dir / f"{task_name}_{agent_id}_actions.json"
             
             try:
                 if filepath.exists():

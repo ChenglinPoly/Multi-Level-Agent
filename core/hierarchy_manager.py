@@ -33,7 +33,8 @@ class HierarchyManager:
         # 生成文件名：hash + 最后文件夹名
         import hashlib
         task_hash = hashlib.md5(task_id.encode()).hexdigest()[:8]
-        task_folder = Path(task_id).name if '/' in task_id else task_id
+        # 跨平台路径处理：检查是否是路径（包含/或\）
+        task_folder = Path(task_id).name if (os.sep in task_id or '/' in task_id or '\\' in task_id) else task_id
         task_name = f"{task_hash}_{task_folder}"
         
         self.stack_file = conversations_dir / f'{task_name}_stack.json'
