@@ -64,7 +64,7 @@ class ContextBuilder:
         
         # 2️⃣ 构建各个动态部分
         user_latest_input = self._build_user_latest_input(current)
-        user_agent_history = self._build_user_agent_history(history)
+        user_agent_history = self._build_user_agent_history(task_id)
         structured_call_info = self._build_structured_call_info(current, agent_id)
         current_thinking = self._build_current_thinking(task_id, agent_id, current)
         action_history_xml = self._build_action_history(task_id, agent_id)
@@ -153,57 +153,114 @@ class ContextBuilder:
         
         return "\n".join(result)
     
-    def _build_user_agent_history(self, history: List[Dict]) -> str:
+    def _build_user_agent_history(self, task_id: str) -> str:
         """
-        构建用户-智能体历史交互部分
-        展示历史任务中Level 0 Agent的progress
+        检查并压缩用户-智能体历史交互（只在启动时执行一次）
+        
+        Returns:
+            压缩后的历史交互文本（已包含<用户-智能体历史交互>标签）
         """
+        context = self.hierarchy_manager.get_context()
+        current = context.get("current", {})
+        history = context.get("history", [])
+        
         if not history:
             return "(无历史交互)"
         
-        result = []
+        compressed_history = current.get("_compressed_user_agent_history")
+        if compressed_history:
+            print("✅ 使用已有的压缩历史交互")
+            return compressed_history
+        
+        print("🔄 首次压缩历史交互...")
+        compressed_result = self._compress_user_agent_history_with_llm(history, task_id)
+        
+        context["current"]["_compressed_user_agent_history"] = compressed_result
+        self.hierarchy_manager._save_context(context)
+        
+        return compressed_result
+    
+    def _compress_user_agent_history_with_llm(self, history: List[Dict], task_id: str) -> str:
+        """
+        使用LLM压缩历史交互（直接返回LLM输出，不解析）
+        
+        Args:
+            history: 历史任务列表
+            task_id: 任务ID
+            
+        Returns:
+            压缩后的文本（LLM原始输出）
+        """
+        full_history_data = []
+        
         for i, hist_item in enumerate(history, 1):
             instructions = hist_item.get("instructions", [])
             agents_status = hist_item.get("agents_status", {})
             start_time = hist_item.get("start_time", "")
             completion_time = hist_item.get("completion_time", "")
             
-            result.append(f"\n=== 历史任务 {i} ===")
-            result.append(f"时间: {start_time} → {completion_time}")
+            user_inputs = []
+            for instr in instructions:
+                user_inputs.append(instr.get("instruction", ""))
             
-            # 显示指令
-            if instructions:
-                result.append("\n用户指令:")
-                for instr in instructions:
-                    result.append(f"  - {instr.get('instruction', '')}")
-            
-            # 显示Level 0 Agent的final_output（已完成）或latest_thinking（进行中）
-            level_0_agents = [
-                (aid, info) for aid, info in agents_status.items()
-                if info.get("level") == 0 and info.get("agent_name") != "judge_agent"
-            ]
-            
-            if level_0_agents:
-                result.append("\nLevel 0 Agent执行结果:")
-                for aid, info in level_0_agents:
-                    agent_name = info.get("agent_name", "")
-                    status = info.get("status", "")
+            agent_summaries = []
+            for agent_id, agent_info in agents_status.items():
+                if agent_info.get("level") == 0 and agent_info.get("agent_name") != "judge_agent":
+                    agent_name = agent_info.get("agent_name", "")
+                    status = agent_info.get("status", "")
                     
-                    # 优先显示final_output（如果已完成）
-                    if status == "completed" and "final_output" in info:
-                        final_output = info.get("final_output", "")
-                        result.append(f"  【{agent_name}】（已完成）")
-                        result.append(f"  {final_output}")
-                    elif "latest_thinking" in info:
-                        # 如果还在运行，显示thinking
-                        thinking = info.get("latest_thinking", "")
-                        result.append(f"  【{agent_name}】（运行中）")
-                        result.append(f"  {thinking}")
-                    else:
-                        result.append(f"  【{agent_name}】")
-                        result.append(f"  (无输出信息)")
+                    final_output = agent_info.get("final_output", "")
+                    thinking = agent_info.get("latest_thinking", "")
+                    
+                    agent_summaries.append({
+                        "agent_name": agent_name,
+                        "status": status,
+                        "final_output": final_output,
+                        "thinking": thinking
+                    })
+            
+            full_history_data.append({
+                "task_id": i,
+                "time_range": f"{start_time} → {completion_time}",
+                "user_inputs": user_inputs,
+                "agents": agent_summaries
+            })
         
-        return "\n".join(result)
+        prompt = f"""请分析以下历史交互数据，提取关键信息并总结。
+
+历史任务数据：
+{json.dumps(full_history_data, ensure_ascii=False, indent=2)}
+
+请总结以下内容：
+1. 文件空间总结：描述当前工作空间文件结构，结果文件对应的task，和简要介绍，同时列出一些重点的中间材料和文件。基于历史的final_output和thinking来推断
+2. 历史交互概览：简要描述每次任务的用户输入和完成情况
+
+要求：
+- 每个描述要简洁明了
+- 总字符数控制在3000字以内
+- 使用中文输出
+- 直接输出总结内容文本，不需要任何标记，不要使用markdown格式"""
+
+        from services.llm_client import ChatMessage
+        
+        history_messages = [ChatMessage(role="user", content=prompt)]
+        
+        response = self.llm_client.chat(
+            history=history_messages,
+            model=self.llm_client.models[0],
+            system_prompt="你是一个专业的内容总结助手。请简洁明了地总结历史交互信息。",
+            tool_list=[],
+            tool_choice="auto"
+        )
+        
+        if response.status != "success":
+            raise Exception(f"LLM压缩失败: {response.output}")
+
+        output_text = response.output
+        
+        print(f"✅ 历史交互压缩成功，长度: {len(output_text)} 字符")
+        
+        return output_text
     
     def _build_structured_call_info(self, current: Dict, current_agent_id: str) -> str:
         """构建结构化调用信息（JSON格式，更清晰）"""

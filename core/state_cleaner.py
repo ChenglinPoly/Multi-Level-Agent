@@ -151,6 +151,9 @@ def clean_before_start(task_id: str, new_user_input: str = None):
             context["current"]["agents_status"] = {}
             context["current"]["hierarchy"] = {}
             context["current"]["instructions"] = []
+            # 删除压缩的历史（如果有）
+            if "_compressed_user_agent_history" in context["current"]:
+                del context["current"]["_compressed_user_agent_history"]
             print(f"   🗑️ 清空 current，准备新任务")
         else:
             # 续跑：保留 running agents
