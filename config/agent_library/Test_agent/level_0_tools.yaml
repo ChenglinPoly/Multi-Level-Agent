@@ -250,6 +250,63 @@ tools:
           description: "保存解析结果的相对路径，可选。不指定则直接返回内容。"
       required: ["path"]
 
+  vision_tool:
+    level: 0
+    type: tool_call_agent
+    name: "vision_tool"
+    description: "使用LLM Vision模型分析图片内容。可以识别图片中的内容、描述场景、回答问题等。"
+    parameters:
+      type: "object"
+      properties:
+        image_path:
+          type: "string"
+          description: "图片文件的相对路径（相对于任务目录）。"
+        question:
+          type: "string"
+          description: "要问的问题，例如'这是什么？'或'请描述图片中的内容'。不指定则默认描述图片内容。"
+        model:
+          type: "string"
+          description: "要使用的模型名称，可选。不指定则使用配置中的默认模型。"
+      required: ["image_path"]
+
+  audio_tool:
+    level: 0
+    type: tool_call_agent
+    name: "audio_tool"
+    description: "使用LLM Audio模型分析音频内容。可以识别音频中的内容、描述场景、回答问题等。支持 mp3、wav、m4a 等格式。"
+    parameters:
+      type: "object"
+      properties:
+        audio_path:
+          type: "string"
+          description: "音频文件的相对路径（相对于任务目录）。"
+        question:
+          type: "string"
+          description: "要问的问题，例如'这段音频讲了什么？'或'请描述音频内容'。不指定则默认描述音频内容。"
+        model:
+          type: "string"
+          description: "要使用的模型名称，可选。不指定则使用配置中的默认模型。"
+      required: ["audio_path"]
+
+  paper_analyze_tool:
+    level: 0
+    type: tool_call_agent
+    name: "paper_analyze_tool"
+    description: "解析论文文档并使用LLM分析论文内容。可以总结论文、回答关于论文的问题等。"
+    parameters:
+      type: "object"
+      properties:
+        paper_path:
+          type: "string"
+          description: "论文文件的相对路径（相对于任务目录），支持PDF、Word等格式。"
+        question:
+          type: "string"
+          description: "要问的问题，例如'这篇论文的主要贡献是什么？'不指定则默认总结论文内容。"
+        parse_save_path:
+          type: "string"
+          description: "保存解析结果的相对路径，可选。"
+      required: ["paper_path"]
+
   md_to_pdf:
     level: 0
     type: tool_call_agent

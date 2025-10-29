@@ -20,6 +20,12 @@ from .arxiv_tools import ArxivSearchTool
 
 from .document_tools import ParseDocumentTool
 
+from .vision_tools import VisionTool
+
+from .audio_tools import AudioTool
+
+from .paper_tools import PaperAnalyzeTool
+
 from .human_tools import HumanInLoopTool
 
 from .convert_tools import (
@@ -47,6 +53,9 @@ __all__ = [
     "CrawlPageTool",
     "FileDownloadTool",
     "ParseDocumentTool",
+    "VisionTool",
+    "AudioTool",
+    "PaperAnalyzeTool",
     "MarkdownToPdfTool",
     "MarkdownToDocxTool",
     "TexToPdfTool",

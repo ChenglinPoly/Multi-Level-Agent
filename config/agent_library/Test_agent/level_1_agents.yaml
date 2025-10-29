@@ -553,4 +553,4 @@ tools:
           type: "integer"
           default: 100
           description: "编译修复过程的最大轮次，防止无限循环。可选。"
-      required: ["task_id", "task_input"] 
+      required: ["task_id", "task_input"]
