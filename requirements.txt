@@ -20,6 +20,7 @@ ddgs>=1.0.0             # DuckDuckGo 搜索
 arxiv>=2.0.0            # arXiv API
 prompt_toolkit>=3.0.0   # CLI 交互
 rich>=13.0.0            # 终端美化
+psutil>=5.9.0           # 进程管理
 
 playwright>=1.40.0
 

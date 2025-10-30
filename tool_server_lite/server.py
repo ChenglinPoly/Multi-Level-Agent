@@ -4,13 +4,24 @@
 轻量化工具服务器 - 基于 FastAPI
 """
 
+import sys
+
+# Windows控制台UTF-8编码支持（解决emoji显示问题）
+if sys.platform == 'win32':
+    try:
+        import io
+        # 强制行缓冲和立即写入，避免输出延迟
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True, write_through=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True, write_through=True)
+    except Exception:
+        pass
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import uvicorn
 from pathlib import Path
-import sys
 
 # 添加父目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
@@ -345,17 +356,28 @@ def start_server(host: str = "0.0.0.0", port: int = 8001):
 
 
 def get_server_pid() -> int:
-    """获取服务器进程ID"""
-    import subprocess
+    """获取服务器进程ID（跨平台）- 使用 psutil"""
     try:
-        result = subprocess.run(
-            ["pgrep", "-f", "tool_server_lite.*server.py"],
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return int(result.stdout.strip().split('\n')[0])
-    except:
+        import psutil
+        
+        # 遍历所有进程查找tool_server
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline')
+                if cmdline and 'python' in proc.info.get('name', '').lower():
+                    # 检查命令行是否包含 tool_server_lite/server.py
+                    cmdline_str = ' '.join(cmdline) if cmdline else ''
+                    if 'tool_server_lite' in cmdline_str and 'server.py' in cmdline_str:
+                        # 排除当前进程（包含status/start命令的）
+                        if any(cmd in cmdline_str for cmd in ['status', 'start', 'stop', 'restart']):
+                            continue
+                        return proc.info['pid']
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except ImportError:
+        # psutil 未安装，回退到简单方法
+        pass
+    except Exception:
         pass
     return None
 
@@ -384,38 +406,19 @@ def server_status():
 
 
 def server_stop():
-    """停止服务器（杀掉所有匹配进程）"""
-    import subprocess
+    """停止服务器"""
+    pid = get_server_pid()
+    
+    if not pid:
+        print("ℹ️  服务器未运行")
+        return
+    
     import signal
     import os
     
     try:
-        # 获取所有匹配的进程 PID
-        result = subprocess.run(
-            ["pgrep", "-f", "tool_server_lite.*server.py"],
-            capture_output=True,
-            text=True
-        )
-        
-        if result.returncode != 0 or not result.stdout.strip():
-            print("ℹ️  服务器未运行")
-            return
-        
-        # 杀掉所有进程
-        pids = [int(pid) for pid in result.stdout.strip().split('\n') if pid.strip()]
-        killed_count = 0
-        
-        for pid in pids:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                print(f"✅ 已停止进程: {pid}")
-                killed_count += 1
-            except Exception as e:
-                print(f"⚠️  停止 PID {pid} 失败: {e}")
-        
-        if killed_count > 0:
-            print(f"✅ Tool Server 已停止（共 {killed_count} 个进程）")
-        
+        os.kill(pid, signal.SIGTERM)
+        print(f"✅ Tool Server 已停止 (PID: {pid})")
     except Exception as e:
         print(f"❌ 停止失败: {e}")
 
@@ -429,21 +432,63 @@ def server_start_daemon(host="0.0.0.0", port=8001):
         print("ℹ️  服务器已在运行")
         return
     
+    # 创建日志文件
+    log_file = Path(__file__).parent / "tool_server.log"
+    
     # 后台启动
-    subprocess.Popen(
-        [sys.executable, __file__, "--host", host, "--port", str(port)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True
-    )
+    try:
+        log_handle = open(log_file, 'w', encoding='utf-8')
+        
+        if sys.platform == 'win32':
+            # Windows: 使用DETACHED_PROCESS避免创建新窗口
+            CREATE_NO_WINDOW = 0x08000000
+            process = subprocess.Popen(
+                [sys.executable, __file__, "--host", host, "--port", str(port)],
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                creationflags=CREATE_NO_WINDOW,
+                close_fds=False
+            )
+        else:
+            # Unix/Linux/Mac: 使用标准后台启动
+            process = subprocess.Popen(
+                [sys.executable, __file__, "--host", host, "--port", str(port)],
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True
+            )
+        
+        print(f"[INFO] 后台进程已启动 (PID: {process.pid})")
+        print(f"[LOG] 日志文件: {log_file}")
+        
+        # 不要关闭log_handle，让子进程继续使用
+    except Exception as e:
+        print(f"❌ 启动失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return
     
     import time
-    time.sleep(2)
     
-    if server_status():
-        print("✅ Tool Server 已启动（后台）")
-    else:
-        print("❌ 启动失败")
+    # 等待服务器启动（最多等待30秒，每2秒检查一次）
+    print("⏳ 等待服务器启动...")
+    max_retries = 15  # 30秒 / 2秒
+    for i in range(max_retries):
+        time.sleep(2)
+        try:
+            import requests
+            response = requests.get(f"http://localhost:{port}/health", timeout=2)
+            if response.status_code == 200:
+                print("✅ Tool Server 已启动（后台）")
+                print(f"   地址: http://localhost:{port}")
+                return
+        except:
+            # 继续等待
+            if i < max_retries - 1:
+                print(f"   等待中... ({i+1}/{max_retries})")
+    
+    # 超时
+    print(f"❌ 启动超时，请查看日志: {log_file}")
 
 
 def main():

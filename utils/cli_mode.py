@@ -10,6 +10,8 @@ from pathlib import Path
 import subprocess
 import threading
 import queue
+import signal
+import platform
 
 try:
     from prompt_toolkit import PromptSession, print_formatted_text
@@ -154,9 +156,28 @@ class InteractiveCLI:
     def stop_current_task(self):
         """停止当前运行的任务"""
         if self.current_process and self.current_process.poll() is None:
-            self.current_process.terminate()
-            self.current_process.wait(timeout=3)
-            print("\n⚠️  已终止前一个任务\n")
+            try:
+                if platform.system() == 'Windows':
+                    # Windows: 发送 Ctrl+Break 信号
+                    self.current_process.send_signal(signal.CTRL_BREAK_EVENT)
+                    try:
+                        self.current_process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        # 如果信号无效，强制终止
+                        self.current_process.terminate()
+                        self.current_process.wait(timeout=1)
+                else:
+                    # Unix/Mac: 使用 terminate (发送 SIGTERM)
+                    self.current_process.terminate()
+                    self.current_process.wait(timeout=3)
+                print("\n⚠️  已终止前一个任务\n")
+            except Exception as e:
+                # 最后手段：强制 kill
+                try:
+                    self.current_process.kill()
+                    self.current_process.wait(timeout=1)
+                except:
+                    pass
     
     def run_task(self, agent_name: str, user_input: str):
         """
@@ -176,6 +197,20 @@ class InteractiveCLI:
         import shutil
         mla_cmd = shutil.which('mla-agent') or 'mla-agent'
         
+        # Windows 需要特殊的进程创建标志以支持信号处理
+        popen_kwargs = {
+            'stdout': subprocess.PIPE,
+            'stderr': subprocess.PIPE,
+            'text': True,
+            'encoding': 'utf-8',
+            'errors': 'replace',
+            'bufsize': 0  # 无缓冲，实时输出
+        }
+        
+        if platform.system() == 'Windows':
+            # Windows: 创建新的进程组，允许发送 Ctrl+Break
+            popen_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+        
         # 启动子进程（JSONL模式 - 实时流式输出）
         self.current_process = subprocess.Popen(
             [
@@ -186,12 +221,7 @@ class InteractiveCLI:
                 '--agent_system', self.agent_system,
                 '--jsonl'  # JSONL 模式，实时流式输出
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            bufsize=0  # 无缓冲，实时输出
+            **popen_kwargs
         )
         
         # 后台线程读取输出（JSONL 模式，解析并显示）
@@ -314,13 +344,24 @@ class InteractiveCLI:
                     # 终止运行中的任务
                     if self.current_process and self.current_process.poll() is None:
                         print("\n⏹️  正在停止运行中的任务...")
-                        self.current_process.terminate()
                         try:
-                            self.current_process.wait(timeout=3)
+                            if platform.system() == 'Windows':
+                                self.current_process.send_signal(signal.CTRL_BREAK_EVENT)
+                                try:
+                                    self.current_process.wait(timeout=2)
+                                except subprocess.TimeoutExpired:
+                                    self.current_process.terminate()
+                                    self.current_process.wait(timeout=1)
+                            else:
+                                self.current_process.terminate()
+                                self.current_process.wait(timeout=3)
                             print("✅ 任务已停止")
                         except:
-                            self.current_process.kill()
-                            print("✅ 任务已强制终止")
+                            try:
+                                self.current_process.kill()
+                                print("✅ 任务已强制终止")
+                            except:
+                                pass
                     print("\n👋 再见！\n")
                     break
                 
@@ -349,11 +390,30 @@ class InteractiveCLI:
                 # Ctrl+C: 终止当前任务但不退出 CLI
                 if self.current_process and self.current_process.poll() is None:
                     print("\n\n⚠️  正在中断任务...")
-                    self.current_process.terminate()
                     try:
-                        self.current_process.wait(timeout=2)
-                    except:
-                        self.current_process.kill()
+                        if platform.system() == 'Windows':
+                            # Windows: 发送 Ctrl+Break 信号
+                            self.current_process.send_signal(signal.CTRL_BREAK_EVENT)
+                            try:
+                                self.current_process.wait(timeout=2)
+                            except subprocess.TimeoutExpired:
+                                self.current_process.terminate()
+                                try:
+                                    self.current_process.wait(timeout=1)
+                                except:
+                                    self.current_process.kill()
+                        else:
+                            # Unix/Mac: 使用 terminate
+                            self.current_process.terminate()
+                            try:
+                                self.current_process.wait(timeout=2)
+                            except subprocess.TimeoutExpired:
+                                self.current_process.kill()
+                    except Exception:
+                        try:
+                            self.current_process.kill()
+                        except:
+                            pass
                     print("✅ 任务已中断\n")
                     print("💡 输入相同内容可续跑，输入新内容开始新任务\n")
                 else:
@@ -363,8 +423,22 @@ class InteractiveCLI:
                 # Ctrl+D: 退出
                 if self.current_process and self.current_process.poll() is None:
                     print("\n\n⏹️  正在停止运行中的任务...")
-                    self.current_process.terminate()
-                    self.current_process.wait(timeout=3)
+                    try:
+                        if platform.system() == 'Windows':
+                            self.current_process.send_signal(signal.CTRL_BREAK_EVENT)
+                            try:
+                                self.current_process.wait(timeout=2)
+                            except subprocess.TimeoutExpired:
+                                self.current_process.terminate()
+                                self.current_process.wait(timeout=1)
+                        else:
+                            self.current_process.terminate()
+                            self.current_process.wait(timeout=3)
+                    except:
+                        try:
+                            self.current_process.kill()
+                        except:
+                            pass
                 print("\n\n👋 再见！\n")
                 break
 
