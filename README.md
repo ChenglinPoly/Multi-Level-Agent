@@ -53,6 +53,7 @@ MLA handles the entire research workflow - from literature search and experiment
 
 - [See It In Action](#-see-it-in-action)
 - [Quick Start](#-quick-start)
+- [Interface Screenshots](#-interface-screenshots)
 - [Configuration Guide](#-configuration-guide)
 - [CLI Interface](#-cli-interface)
 - [SDK Integration](#-sdk-integration)
@@ -130,7 +131,40 @@ mla-agent \
 mla-agent --cli
 ```
 
+---
 
+## 📸 Interface Screenshots
+
+### CLI Interface
+
+MLA provides a rich interactive CLI with real-time task monitoring, HIL handling, and agent switching:
+
+**System Selection:**
+<p align="center">
+  <img src="assets/cli_choose_system.png" alt="CLI System Selection" width="800">
+</p>
+
+**Tool Mode Configuration:**
+<p align="center">
+  <img src="assets/cli_choose_tool_mode.png" alt="CLI Tool Mode" width="800">
+</p>
+
+**Starting Tasks:**
+<p align="center">
+  <img src="assets/cli_start_task.png" alt="CLI Task Execution" width="800">
+</p>
+
+*Interactive CLI with prompt_toolkit and rich terminal UI - featuring multi-turn conversations, automatic HIL detection, and tool execution confirmation.*
+
+### VS Code Plugin
+
+Build powerful IDE extensions using MLA's JSONL mode:
+
+<p align="center">
+  <img src="assets/vscode_plugin.png" alt="VS Code Plugin Screenshot" width="800">
+</p>
+
+*VS Code extension powered by MLA - seamless integration with workspace context and real-time streaming output.*
 
 ---
 
