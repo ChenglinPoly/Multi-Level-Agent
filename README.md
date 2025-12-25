@@ -73,7 +73,7 @@ MLA handles the entire research workflow - from literature search and experiment
 cd install_path
 python -m venv venv
 source venv/bin/activate
-git clone https://github.com/ChenglinPoly/Multi-Level-Agent.git
+git clone https://github.com/ChenglinPoly/infiAgent.git
 cd Multi-Level-Agent
 pip install -e .
 ```
