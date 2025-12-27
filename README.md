@@ -108,7 +108,7 @@ mla-agent --config-set base_url "https://api.openai.com/v1"
 
 # Set Model List (optional)
 # Note: Add 'openai/' prefix if your provider returns OpenAI-compatible format
-mla-agent --config-set models '["openai/anthropic/claude-sonnet-4"]'
+mla-agent --config-set models '["openai/google/gemini-3-flash-preview"]'
 ```
 
 **Important Configuration Notes:**
