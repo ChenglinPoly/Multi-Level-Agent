@@ -571,8 +571,8 @@ tools:
       - web_search
       - google_scholar_search
       - crawl_page
-      - summary_from_one_paper
-      - get_searchPdf_by_doi_or_title
+      - answer_from_papers
+      
     max_turns: 100
     model_type: claude-3-7-sonnet-20250219
     prompts:
