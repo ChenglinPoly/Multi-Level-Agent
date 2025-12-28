@@ -82,7 +82,7 @@ class ActionCompressor:
         
         # 计算整体token数
         total_text = self._actions_to_xml(action_history)
-        total_tokens = self.count_tokens(total_text)
+        total_tokens = self.count_tokens(total_text+thinking+task_input)
         
         # 如果不超限，不压缩
         if total_tokens <= max_context_window - 20000:
@@ -98,7 +98,8 @@ class ActionCompressor:
             self._actions_to_xml(historical_actions),
             target_tokens=5000,  # 历史总结固定5k tokens
             thinking=thinking,
-            task_input=task_input
+            task_input=task_input,
+            max_context_window=max_context_window
         )
         
         # 压缩最新action的大字段（50% of max_window）
@@ -106,7 +107,8 @@ class ActionCompressor:
             recent_action,
             int(max_context_window * 0.5),  # 80000 * 0.5 = 40000 tokens
             thinking=thinking,
-            task_input=task_input
+            task_input=task_input,
+            max_context_window=max_context_window
         )
         
         result = [summary_action, compressed_recent]
@@ -146,17 +148,20 @@ class ActionCompressor:
         xml_text: str, 
         target_tokens: int = 5000,
         thinking: str = "",
-        task_input: str = ""
+        task_input: str = "",
+        max_context_window: int = None
     ) -> Dict:
         """
         总结历史XML内容为一个summary action
         基于 thinking 和 task_input 智能判断哪些信息有效
+        支持分段压缩：如果数据量过大，自动分段处理
         
         Args:
             xml_text: 历史actions的XML文本
             target_tokens: 目标token数
             thinking: 当前的 thinking 内容（包含 todolist 和计划）
             task_input: 任务需求描述
+            max_context_window: 最大上下文窗口（用于判断是否需要分段）
             
         Returns:
             一个summary action
@@ -164,14 +169,56 @@ class ActionCompressor:
         try:
             from services.llm_client import ChatMessage
             
-            # 构建智能压缩提示词
+            # 检查数据量，决定是否需要分段压缩
+            xml_tokens = self.count_tokens(xml_text)
+            
+            # 获取压缩模型的上下文限制（从参数或LLM客户端获取）
+            compressor_context_limit = max_context_window or self.llm_client.max_context_window
+            
+            # 构建上下文信息
             context_info = ""
             if task_input:
                 context_info += f"\n<任务需求>\n{task_input}\n</任务需求>\n"
             if thinking:
                 context_info += f"\n<当前进度与计划>\n{thinking}\n</当前进度与计划>\n"
             
-            prompt = f"""你是智能历史信息压缩助手。请基于任务需求和当前进度，智能压缩以下历史动作。
+            context_tokens = self.count_tokens(context_info)
+            
+            # 如果数据量 + 上下文 + 提示词 超过模型限制的60%，使用分段压缩
+            overhead_tokens = 2000  # 提示词和格式的开销
+            available_tokens = int(compressor_context_limit * 0.6) - context_tokens - overhead_tokens
+            
+            if xml_tokens > available_tokens:
+                safe_print(f"   📦 数据量过大({xml_tokens} tokens)，启用分段压缩")
+                return self._chunked_summarize(xml_text, target_tokens, thinking, task_input, available_tokens)
+            
+            # 数据量合适，直接压缩
+            return self._single_summarize(xml_text, target_tokens, thinking, task_input, context_info)
+        
+        except Exception as e:
+            safe_print(f"⚠️ 总结失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "tool_name": "_historical_summary",
+                "arguments": {},
+                "result": {"status": "success", "output": "[历史动作已省略]", "_is_summary": True}
+            }
+    
+    def _single_summarize(
+        self,
+        xml_text: str,
+        target_tokens: int,
+        thinking: str,
+        task_input: str,
+        context_info: str
+    ) -> Dict:
+        """
+        单次压缩（数据量不大时使用）
+        """
+        from services.llm_client import ChatMessage
+        
+        prompt = f"""你是智能历史信息压缩助手。请基于任务需求和当前进度，智能压缩以下历史动作。
 
 {context_info}
 
@@ -199,43 +246,162 @@ class ActionCompressor:
    - 保持信息的连贯性
 
 请直接输出压缩后的总结（中文）："""
+        
+        history = [ChatMessage(role="user", content=prompt)]
+        
+        response = self.llm_client.chat(
+            history=history,
+            model=self.llm_client.compressor_models[0],
+            system_prompt=f"你是整体上下文构造专家。目标：将内容压缩到{target_tokens} tokens以内。",
+            tool_list=[],
+            tool_choice="auto"
+        )
+        
+        summary = response.output if response.status == "success" else "[总结失败]"
+        
+        return {
+            "tool_name": "_historical_summary",
+            "arguments": {},
+            "result": {
+                "status": "success",
+                "output": summary,
+                "_is_summary": True
+            }
+        }
+    
+    def _chunked_summarize(
+        self,
+        xml_text: str,
+        target_tokens: int,
+        thinking: str,
+        task_input: str,
+        chunk_size_tokens: int
+    ) -> Dict:
+        """
+        分段压缩（数据量过大时使用）
+        
+        Args:
+            xml_text: 完整的XML文本
+            target_tokens: 最终目标token数
+            thinking: thinking内容
+            task_input: 任务输入
+            chunk_size_tokens: 每段的最大token数
+        
+        Returns:
+            压缩后的summary action
+        """
+        from services.llm_client import ChatMessage
+        
+        # 按action分割xml_text
+        # 简单方法：按 </action> 分割
+        action_blocks = xml_text.split('</action>')
+        action_blocks = [block + '</action>' for block in action_blocks if block.strip()]
+        
+        # 将actions分组到chunks中
+        chunks = []
+        current_chunk = []
+        current_chunk_tokens = 0
+        
+        for action_block in action_blocks:
+            action_tokens = self.count_tokens(action_block)
+            
+            if current_chunk_tokens + action_tokens > chunk_size_tokens and current_chunk:
+                # 当前chunk已满，开始新chunk
+                chunks.append('\n\n'.join(current_chunk))
+                current_chunk = [action_block]
+                current_chunk_tokens = action_tokens
+            else:
+                current_chunk.append(action_block)
+                current_chunk_tokens += action_tokens
+        
+        # 添加最后一个chunk
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+        
+        safe_print(f"      分成 {len(chunks)} 段进行压缩")
+        
+        # 构建上下文信息
+        context_info = ""
+        if task_input:
+            context_info += f"\n<任务需求>\n{task_input}\n</任务需求>\n"
+        if thinking:
+            context_info += f"\n<当前进度与计划>\n{thinking}\n</当前进度与计划>\n"
+        
+        # 对每个chunk进行压缩
+        chunk_summaries = []
+        target_per_chunk = target_tokens // len(chunks)
+        
+        for i, chunk in enumerate(chunks):
+            safe_print(f"      压缩第 {i+1}/{len(chunks)} 段...")
+            
+            prompt = f"""你是智能历史信息压缩助手。这是分段压缩任务的第 {i+1}/{len(chunks)} 段。
+
+{context_info}
+
+<本段历史动作>
+{chunk}
+</本段历史动作>
+
+压缩要求：
+1. **目标长度**: 严格控制在 {target_per_chunk} tokens 以内
+2. **智能筛选**: 
+   - 根据任务需求和进度，保留关键结果和重要信息
+   - 丢弃无关或失败的尝试
+3. **优先保留**:
+   - 成功的关键步骤和产出
+   - 重要的文件路径和数据
+   - 对后续任务有价值的输出
+4. **格式要求**:
+   - 按时间顺序简要总结本段的关键动作
+   - 突出重要成果
+
+请直接输出本段的压缩总结（中文）："""
             
             history = [ChatMessage(role="user", content=prompt)]
             
-            response = self.llm_client.chat(
-                history=history,
-                model=self.llm_client.compressor_models[0],
-                system_prompt=f"你是整体上下文构造专家。目标：将内容压缩到{target_tokens} tokens以内。",
-                tool_list=[],
-                tool_choice="auto"
-            )
-            
-            summary = response.output if response.status == "success" else "[总结失败]"
-            
-            return {
-                "tool_name": "_historical_summary",
-                "arguments": {},
-                "result": {
-                    "status": "success",
-                    "output": summary,
-                    "_is_summary": True
-                }
-            }
+            try:
+                response = self.llm_client.chat(
+                    history=history,
+                    model=self.llm_client.compressor_models[0],
+                    system_prompt=f"你是内容压缩专家。目标：将本段压缩到{target_per_chunk} tokens以内。",
+                    tool_list=[],
+                    tool_choice="auto"
+                )
+                
+                if response.status == "success":
+                    chunk_summaries.append(f"[段{i+1}] {response.output}")
+                    safe_print(f"         ✅ 第{i+1}段压缩成功")
+                else:
+                    chunk_summaries.append(f"[段{i+1}] [压缩失败]")
+                    safe_print(f"         ⚠️ 第{i+1}段压缩失败: {response.output}")
+            except Exception as e:
+                chunk_summaries.append(f"[段{i+1}] [压缩异常]")
+                safe_print(f"         ❌ 第{i+1}段压缩异常: {e}")
         
-        except Exception as e:
-            safe_print(f"⚠️ 总结失败: {e}")
-            return {
-                "tool_name": "_historical_summary",
-                "arguments": {},
-                "result": {"status": "success", "output": "[历史动作已省略]", "_is_summary": True}
+        # 合并所有段的总结
+        final_summary = "\n\n".join(chunk_summaries)
+        
+        safe_print(f"      ✅ 分段压缩完成，共{len(chunks)}段")
+        
+        return {
+            "tool_name": "_historical_summary",
+            "arguments": {},
+            "result": {
+                "status": "success",
+                "output": final_summary,
+                "_is_summary": True,
+                "_chunked": True,
+                "_chunks_count": len(chunks)
             }
+        }
     
     def _compress_action_fields(
         self, 
         action: Dict, 
         max_field_tokens: int,
         thinking: str = "",
-        task_input: str = ""
+        task_input: str = "",
+        max_context_window: int = None
     ) -> Dict:
         """
         压缩action中的大字段（arguments和result）
@@ -245,6 +411,7 @@ class ActionCompressor:
             max_field_tokens: 单个字段的最大token数（通常是max_context_window/2）
             thinking: 当前的 thinking 内容
             task_input: 任务需求描述
+            max_context_window: 最大上下文窗口（传递给字段压缩方法）
             
         Returns:
             压缩后的action
@@ -266,7 +433,8 @@ class ActionCompressor:
                         action.get("tool_name", "unknown"),
                         thinking=thinking,
                         task_input=task_input,
-                        field_context=f"工具 '{action.get('tool_name')}' 的参数 '{k}'"
+                        field_context=f"工具 '{action.get('tool_name')}' 的参数 '{k}'",
+                        max_context_window=max_context_window
                     )
                     compressed_args[k] = compressed_v
                 else:
@@ -290,7 +458,8 @@ class ActionCompressor:
                     action.get("tool_name", "unknown"),
                     thinking=thinking,
                     task_input=task_input,
-                    field_context=field_context
+                    field_context=field_context,
+                    max_context_window=max_context_window
                 )
                 compressed_action["result"]["output"] = compressed_output
                 compressed_action["result"]["_compressed"] = True
@@ -305,10 +474,12 @@ class ActionCompressor:
         tool_name: str,
         thinking: str = "",
         task_input: str = "",
-        field_context: str = ""
+        field_context: str = "",
+        max_context_window: int = None
     ) -> str:
         """
         使用LLM智能压缩单个字段
+        支持分段压缩：如果字段内容过大，自动分段处理
         
         Args:
             text: 原始文本
@@ -317,6 +488,7 @@ class ActionCompressor:
             thinking: 当前的 thinking 内容
             task_input: 任务需求描述
             field_context: 字段上下文（如 "工具 'file_read' 的参数 'path'"）
+            max_context_window: 最大上下文窗口（用于判断是否需要分段）
             
         Returns:
             压缩后的文本
@@ -347,6 +519,24 @@ class ActionCompressor:
             if field_context:
                 context_info += f"\n<字段来源>\n这是最新动作中 {field_context} 的内容\n</字段来源>\n"
             
+            # 检查字段大小，决定是否需要分段压缩
+            text_tokens = self.count_tokens(text)
+            context_tokens = self.count_tokens(context_info)
+            
+            # 获取压缩模型的上下文限制（从参数或LLM客户端获取）
+            compressor_context_limit = max_context_window or self.llm_client.max_context_window
+            overhead_tokens = 1000  # 提示词开销
+            available_tokens = int(compressor_context_limit * 0.6) - context_tokens - overhead_tokens
+            
+            # 如果文本过大，使用分段压缩
+            if text_tokens > available_tokens:
+                safe_print(f"      📦 字段过大({text_tokens} tokens)，启用分段压缩")
+                return self._chunked_compress_field(
+                    text, target_tokens, tool_name, content_type, focus,
+                    thinking, task_input, field_context, available_tokens
+                )
+            
+            # 文本大小合适，直接压缩
             prompt = f"""你是智能内容压缩助手。请基于任务需求和当前进度，压缩以下{content_type}。
 
 {context_info}
@@ -398,6 +588,134 @@ class ActionCompressor:
             safe_print(f"⚠️ LLM压缩失败，使用fallback: {e}")
             # fallback：首尾保留
             return self._fallback_compress(text, target_tokens)
+    
+    def _chunked_compress_field(
+        self,
+        text: str,
+        target_tokens: int,
+        tool_name: str,
+        content_type: str,
+        focus: str,
+        thinking: str,
+        task_input: str,
+        field_context: str,
+        chunk_size_tokens: int
+    ) -> str:
+        """
+        分段压缩字段内容
+        
+        Args:
+            text: 原始文本
+            target_tokens: 最终目标token数
+            tool_name: 工具名称
+            content_type: 内容类型描述
+            focus: 压缩重点
+            thinking: thinking内容
+            task_input: 任务输入
+            field_context: 字段上下文
+            chunk_size_tokens: 每段的最大token数
+            
+        Returns:
+            压缩后的文本
+        """
+        from services.llm_client import ChatMessage
+        
+        # 按段落或固定字符数分割文本
+        # 简单策略：按\n\n分割段落，如果段落太大则按字符数分割
+        paragraphs = text.split('\n\n')
+        
+        chunks = []
+        current_chunk = []
+        current_chunk_tokens = 0
+        
+        for para in paragraphs:
+            para_tokens = self.count_tokens(para)
+            
+            # 如果单个段落就超过chunk大小，需要强制分割
+            if para_tokens > chunk_size_tokens:
+                if current_chunk:
+                    chunks.append('\n\n'.join(current_chunk))
+                    current_chunk = []
+                    current_chunk_tokens = 0
+                
+                # 按字符数强制分割大段落
+                chars_per_chunk = int(chunk_size_tokens * 3)  # 粗略估计
+                for i in range(0, len(para), chars_per_chunk):
+                    chunk_text = para[i:i+chars_per_chunk]
+                    chunks.append(chunk_text)
+            else:
+                if current_chunk_tokens + para_tokens > chunk_size_tokens and current_chunk:
+                    chunks.append('\n\n'.join(current_chunk))
+                    current_chunk = [para]
+                    current_chunk_tokens = para_tokens
+                else:
+                    current_chunk.append(para)
+                    current_chunk_tokens += para_tokens
+        
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+        
+        safe_print(f"         分成 {len(chunks)} 段进行字段压缩")
+        
+        # 构建上下文信息
+        context_info = ""
+        if task_input:
+            context_info += f"\n<任务需求>\n{task_input}\n</任务需求>\n"
+        if thinking:
+            context_info += f"\n<当前进度与计划>\n{thinking}\n</当前进度与计划>\n"
+        if field_context:
+            context_info += f"\n<字段来源>\n这是最新动作中 {field_context} 的内容\n</字段来源>\n"
+        
+        # 压缩每个chunk
+        chunk_results = []
+        target_per_chunk = target_tokens // len(chunks)
+        
+        for i, chunk in enumerate(chunks):
+            safe_print(f"         压缩字段第 {i+1}/{len(chunks)} 段...")
+            
+            prompt = f"""你是智能内容压缩助手。这是分段压缩的第 {i+1}/{len(chunks)} 段{content_type}。
+
+{context_info}
+
+<本段内容>
+{chunk}
+</本段内容>
+
+压缩要求：
+1. **目标长度**: 严格控制在 {target_per_chunk} tokens 以内
+2. **智能筛选**: {focus}
+3. **优先保留**: 关键信息、重要数据、文件路径
+4. **格式要求**: 保持连贯性，使用总结而非截断
+
+请直接输出本段的压缩结果："""
+            
+            history = [ChatMessage(role="user", content=prompt)]
+            
+            try:
+                response = self.llm_client.chat(
+                    history=history,
+                    model=self.llm_client.compressor_models[0],
+                    system_prompt=f"压缩专家。目标：将本段压缩到{target_per_chunk} tokens。",
+                    tool_list=[],
+                    tool_choice="auto"
+                )
+                
+                if response.status == "success":
+                    chunk_results.append(response.output)
+                    safe_print(f"            ✅ 第{i+1}段压缩成功")
+                else:
+                    chunk_results.append(chunk[:500] + "\n[本段压缩失败]")
+                    safe_print(f"            ⚠️ 第{i+1}段压缩失败")
+            except Exception as e:
+                chunk_results.append(chunk[:500] + "\n[本段压缩异常]")
+                safe_print(f"            ❌ 第{i+1}段压缩异常: {e}")
+        
+        # 合并结果
+        final_result = '\n\n---\n\n'.join(chunk_results)
+        
+        safe_print(f"         ✅ 字段分段压缩完成，共{len(chunks)}段")
+        
+        return final_result
     
     def _fallback_compress(self, text: str, max_tokens: int) -> str:
         """
