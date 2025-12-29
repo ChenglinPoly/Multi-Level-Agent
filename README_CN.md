@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-3.0.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.9+-green.svg" alt="Python">
-  <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
+  <img src="https://img.shields.io/badge/license-GPL-blue.svg" alt="License: GPL">
 </p>
 
 ## 🌟 简介
@@ -29,6 +29,7 @@
 - 🧪 **科学计算**：ECM 蛋白质配比仿真、物流排班、作业批改等
 - 🔬 **完整研究流程**：文献收集、实验设计、图表生成和论文撰写
 
+注意目前只支持 python 编程，execute_command只支持只读命令，你可以手动修改code_tools.py中的白名单来添加通行指令以支持其他语言的编译和 debug 或修改配置文件中的提示词。但是尽量使用 docker 模式进行编程任务，防止损坏个人计算机。
 ---
 
 ## 🎬 输出
