@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/license-GPL-blue.svg" alt="License: GPL">
 </p>
 
-[English](README.md) | [简体中文](README_CN.md)
+<p align="center">[English](README.md) | [简体中文](README_CN.md)</p>
 
 ## 🌟 简介
 
