@@ -82,7 +82,7 @@ docker pull chenglinhku/mla:latest
 
 ```bash
 cd /your/workspace
-
+#5002 is a port optional. If you want to agent dev a web or something need expose a port. Please Use it And talk to agent using this port for dev.
 docker run -it --rm \
   -e HOST_PWD=$(pwd) \
   -v $(pwd):/workspace$(pwd) \
@@ -90,6 +90,7 @@ docker run -it --rm \
   -v mla-config:/mla_config \
   -p 8002:8002 \
   -p 9641:9641 \
+  -p 5002:5002 \
   chenglinhku/mla:latest \
   cli
 ```
@@ -97,6 +98,7 @@ docker run -it --rm \
 windows:
 windows user need to manage different conversation id(task id) by self. Different task id will keep different memory.
 ```bash
+#5002 is a port optional. If you want to agent dev a web or something need expose a port. Please Use it And talk to agent using this port for dev.
  docker run -it --rm `
   -e HOST_PWD="/{your_conversaion_id}" `
   -v "${PWD}:/workspace/{your_conversaion_id}" `
