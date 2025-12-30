@@ -1,0 +1,32 @@
+{
+  "messages": [
+    {
+      "agent": "system",
+      "type": "info",
+      "content": "New task created: test",
+      "isUser": false,
+      "sequence": 0
+    },
+    {
+      "agent": "user",
+      "type": "user",
+      "content": "你好",
+      "isUser": true,
+      "sequence": 1
+    },
+    {
+      "agent": "alpha_agent",
+      "type": "start",
+      "content": "🚀 任务开始: 你好",
+      "isUser": false,
+      "sequence": 2
+    },
+    {
+      "agent": "alpha_agent",
+      "type": "error",
+      "content": "⏹️ 任务已停止",
+      "isUser": false,
+      "sequence": 3
+    }
+  ]
+}

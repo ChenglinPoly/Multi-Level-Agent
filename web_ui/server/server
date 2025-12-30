@@ -1,0 +1,187 @@
+#!/bin/bash
+# Web UI 和工具服务器统一管理脚本
+# 用法: ./server [start|stop|restart|status]
+
+# 获取脚本所在目录（server 目录）
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# 切换到 server 目录
+cd "$SCRIPT_DIR"
+
+# 获取项目根目录
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
+TOOL_SERVER_DIR="$PROJECT_ROOT/tool_server_lite"
+
+WEB_PORT=${PORT:-22228}
+TOOL_PORT=${TOOL_PORT:-24243}
+ACTION=${1:-start}
+
+case "$ACTION" in
+    start)
+        # 检查 Web UI 端口
+        if lsof -ti:$WEB_PORT &> /dev/null; then
+            echo "⚠️  Web UI 端口 $WEB_PORT 已被占用"
+            echo "💡 使用 './server stop' 停止现有服务器"
+            exit 1
+        fi
+        
+        # 激活 conda 环境
+        if conda env list | grep -q "paper_agent"; then
+            source "$(conda info --base)/etc/profile.d/conda.sh"
+            conda activate paper_agent
+        fi
+        
+        # 启动工具服务器（如果未运行）
+        echo "🔧 检查工具服务器..."
+        
+        # 检查端口是否被占用
+        if lsof -ti:$TOOL_PORT &> /dev/null; then
+            # 检查服务器是否真的响应
+            if curl -s http://localhost:$TOOL_PORT/health > /dev/null 2>&1; then
+                TOOL_PID=$(lsof -ti:$TOOL_PORT | head -1)
+                echo "   ✅ 工具服务器已在运行（端口 $TOOL_PORT, PID: $TOOL_PID）"
+            else
+                echo "   ⚠️  端口 $TOOL_PORT 被占用但服务器未响应，尝试重启..."
+                kill -9 $(lsof -ti:$TOOL_PORT) 2>/dev/null
+                sleep 2
+            fi
+        fi
+        
+        # 如果端口未被占用或需要重启，启动服务器
+        if ! lsof -ti:$TOOL_PORT &> /dev/null; then
+            echo "   🚀 启动工具服务器（端口 $TOOL_PORT）..."
+            cd "$TOOL_SERVER_DIR"
+            
+            # 获取当前 Python 解释器路径
+            PYTHON_CMD=$(which python3 || which python)
+            
+            # 直接启动服务器（使用专门的启动脚本）
+            nohup $PYTHON_CMD "$TOOL_SERVER_DIR/start_server.py" --host 0.0.0.0 --port $TOOL_PORT > /home/koalm/Songmiao_server/mla-workspace/tool_server.log 2>&1 &
+            TOOL_SERVER_PID=$!
+            sleep 5  # 增加等待时间，让服务器完全启动
+            
+            # 检查是否启动成功
+            if lsof -ti:$TOOL_PORT &> /dev/null; then
+                sleep 2
+                if curl -s http://localhost:$TOOL_PORT/health > /dev/null 2>&1; then
+                    echo "   ✅ 工具服务器已启动（PID: $TOOL_SERVER_PID）"
+                    echo $TOOL_SERVER_PID > /home/koalm/Songmiao_server/mla-workspace/web_ui_tool_server.pid
+                else
+                    echo "   ⚠️  工具服务器进程已启动但未响应"
+                    if [ -f /home/koalm/Songmiao_server/mla-workspace/tool_server.log ]; then
+                        echo "   📋 最近日志:"
+                        tail -10 /home/koalm/Songmiao_server/mla-workspace/tool_server.log | sed 's/^/      /'
+                    fi
+                fi
+            else
+                echo "   ⚠️  工具服务器启动失败"
+                if [ -f /home/koalm/Songmiao_server/mla-workspace/tool_server.log ]; then
+                    echo "   📋 最近日志:"
+                    tail -10 /home/koalm/Songmiao_server/mla-workspace/tool_server.log | sed 's/^/      /'
+                fi
+            fi
+            cd "$SCRIPT_DIR"
+        fi
+        
+        echo ""
+        echo "🚀 启动 Web UI 服务器..."
+        PORT=$WEB_PORT python server.py
+        ;;
+    
+    stop)
+        echo "🛑 正在停止服务器..."
+        
+        # 停止 Web UI
+        WEB_PIDS=$(lsof -ti:$WEB_PORT 2>/dev/null)
+        if [ -z "$WEB_PIDS" ]; then
+            echo "   ℹ️  Web UI 服务器未运行"
+        else
+            echo "   🛑 停止 Web UI 服务器..."
+            kill -9 $WEB_PIDS 2>/dev/null
+            echo "      ✅ 已停止"
+        fi
+        
+        # 停止工具服务器
+        if [ -f /home/koalm/Songmiao_server/mla-workspace/web_ui_tool_server.pid ]; then
+            TOOL_PID=$(cat /home/koalm/Songmiao_server/mla-workspace/web_ui_tool_server.pid)
+            if kill -0 $TOOL_PID 2>/dev/null; then
+                echo "   🛑 停止工具服务器（PID: $TOOL_PID）..."
+                kill -9 $TOOL_PID 2>/dev/null
+                echo "      ✅ 已停止"
+            fi
+            rm -f /home/koalm/Songmiao_server/mla-workspace/web_ui_tool_server.pid
+        fi
+        
+        # 通过端口查找工具服务器
+        TOOL_PIDS=$(lsof -ti:$TOOL_PORT 2>/dev/null)
+        if [ ! -z "$TOOL_PIDS" ]; then
+            for PID in $TOOL_PIDS; do
+                if ps -p $PID -o command= | grep -q "tool_server_lite.*server.py"; then
+                    echo "   🛑 停止工具服务器（PID: $PID）..."
+                    kill -9 $PID 2>/dev/null
+                    echo "      ✅ 已停止"
+                fi
+            done
+        fi
+        
+        # 使用工具服务器的 stop 命令
+        if [ -f "$TOOL_SERVER_DIR/server.py" ]; then
+            cd "$TOOL_SERVER_DIR"
+            python server.py stop > /dev/null 2>&1
+            cd - > /dev/null
+        fi
+        
+        sleep 1
+        echo "✅ 所有服务器已停止"
+        ;;
+    
+    restart)
+        $0 stop
+        sleep 2
+        $0 start
+        ;;
+    
+    status)
+        echo "📊 服务器状态："
+        echo ""
+        
+        # Web UI 状态
+        WEB_PIDS=$(lsof -ti:$WEB_PORT 2>/dev/null)
+        if [ -z "$WEB_PIDS" ]; then
+            echo "   Web UI: ❌ 未运行（端口 $WEB_PORT）"
+        else
+            echo "   Web UI: ✅ 运行中"
+            echo "      端口: $WEB_PORT"
+            echo "      进程: $WEB_PIDS"
+            echo "      访问: http://localhost:$WEB_PORT"
+        fi
+        
+        echo ""
+        
+        # 工具服务器状态
+        TOOL_PIDS=$(lsof -ti:$TOOL_PORT 2>/dev/null)
+        if [ -z "$TOOL_PIDS" ]; then
+            echo "   工具服务器: ❌ 未运行（端口 $TOOL_PORT）"
+        else
+            echo "   工具服务器: ✅ 运行中"
+            echo "      端口: $TOOL_PORT"
+            echo "      进程: $TOOL_PIDS"
+            echo "      访问: http://localhost:$TOOL_PORT/docs"
+        fi
+        ;;
+    
+    *)
+        echo "用法: $0 [start|stop|restart|status]"
+        echo ""
+        echo "命令:"
+        echo "  start   - 启动 Web UI 和工具服务器"
+        echo "  stop    - 停止所有服务器"
+        echo "  restart - 重启所有服务器"
+        echo "  status  - 查看服务器状态"
+        echo ""
+        echo "环境变量:"
+        echo "  PORT      - Web UI 端口（默认: 22228）"
+        echo "  TOOL_PORT - 工具服务器端口（默认: 24243）"
+        exit 1
+        ;;
+esac
+

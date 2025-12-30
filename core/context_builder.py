@@ -476,15 +476,10 @@ class ContextBuilder:
         # 从_actions.json文件读取（使用正确的路径）
         from pathlib import Path
         import json
-        import hashlib
-        import os
         
-        # 使用与ConversationStorage相同的路径生成逻辑
-        conversations_dir = Path.home() / "mla_v3" / "conversations"
-        task_hash = hashlib.md5(task_id.encode()).hexdigest()[:8]
-        task_folder = Path(task_id).name if (os.sep in task_id or '/' in task_id or '\\' in task_id) else task_id
-        task_name = f"{task_hash}_{task_folder}"
-        filepath = conversations_dir / f"{task_name}_{agent_id}_actions.json"
+        # 使用 task_id 下的 conversations 目录
+        conversations_dir = Path(task_id) / "conversations"
+        filepath = conversations_dir / f"{agent_id}_actions.json"
         
         try:
             if filepath.exists():
@@ -514,15 +509,10 @@ class ContextBuilder:
         if not action_history:
             from pathlib import Path
             import json
-            import hashlib
-            import os
             
-            # 使用与ConversationStorage相同的路径生成逻辑
-            conversations_dir = Path.home() / "mla_v3" / "conversations"
-            task_hash = hashlib.md5(task_id.encode()).hexdigest()[:8]
-            task_folder = Path(task_id).name if (os.sep in task_id or '/' in task_id or '\\' in task_id) else task_id
-            task_name = f"{task_hash}_{task_folder}"
-            filepath = conversations_dir / f"{task_name}_{agent_id}_actions.json"
+            # 使用 task_id 下的 conversations 目录
+            conversations_dir = Path(task_id) / "conversations"
+            filepath = conversations_dir / f"{agent_id}_actions.json"
             
             try:
                 if filepath.exists():

@@ -72,7 +72,8 @@ class AgentExecutor:
         
         # 初始化对话存储
         from utils.conversation_storage import ConversationStorage
-        self.conversation_storage = ConversationStorage()
+        # 从 hierarchy_manager 获取 task_id，让对话历史存储在 task_id/conversations/ 目录下
+        self.conversation_storage = ConversationStorage(task_id=hierarchy_manager.task_id)
         
         # Agent状态
         self.agent_id = None
@@ -234,12 +235,23 @@ class AgentExecutor:
                     safe_print(f"\n🔧 执行工具: {tool_call.name}")
                     safe_print(f"📋 参数: {tool_call.arguments}")
                     
-                    # 发送工具调用事件（JSONL模式）
+                    # 发送工具调用事件（JSONL模式）- 区分普通工具和子 Agent
                     emitter = get_event_emitter()
                     if emitter.enabled:
-                        import json
-                        params_str = json.dumps(tool_call.arguments, ensure_ascii=False, indent=2)
-                        emitter.token(f"调用工具: {tool_call.name}\n参数: {params_str}")
+                        # 检查工具类型以区分普通工具和子 Agent
+                        try:
+                            tool_config = self.config_loader.get_tool_config(tool_call.name)
+                            tool_type = tool_config.get("type", "")
+                            
+                            if tool_type == "llm_call_agent":
+                                # 子 Agent 调用 - 使用结构化事件
+                                emitter.agent_call(tool_call.name, tool_call.arguments)
+                            else:
+                                # 普通工具调用 - 使用结构化事件
+                                emitter.tool_call(tool_call.name, tool_call.arguments)
+                        except Exception:
+                            # 如果获取工具配置失败，回退到普通工具调用
+                            emitter.tool_call(tool_call.name, tool_call.arguments)
                     
                     # ✅ 在保存 pending 之前，为 level != 0 的工具添加 uuid
                     arguments_with_uuid = self._add_uuid_if_needed(tool_call.name, tool_call.arguments)
@@ -266,12 +278,10 @@ class AgentExecutor:
                     
                     safe_print(f"✅ 结果: {tool_result.get('status', 'unknown')}")
                     
-                    # 发送工具结果事件（JSONL模式）
-                    emitter = get_event_emitter()
-                    if emitter.enabled:
-                        status = tool_result.get('status', 'unknown')
-                        output_preview = tool_result.get('output', '')[:100]
-                        emitter.token(f"工具 {tool_call.name} 完成: {status} - {output_preview}...")
+                    # 注意：工具完成信息不需要通过 token 事件发送，因为：
+                    # 1. 工具调用已通过 "调用工具: xxx" token 事件展示
+                    # 2. 最终结果会通过 result/end 事件展示
+                    # 3. 避免发送冗余的文本消息，保持事件结构化
                     
                     # 记录动作到历史（使用带 uuid 的参数）
                     action_record = {

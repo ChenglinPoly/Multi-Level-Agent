@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - MLA-V3</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
+            min-height: 100vh;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
+            position: relative;
+            opacity: 0;
+            animation: fadeInUp 0.5s ease-out 0.1s forwards;
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .login-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 50% 50%, rgba(0, 212, 255, 0.05) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .login-box {
+            background: rgba(20, 30, 50, 0.8);
+            padding: 50px 40px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 212, 255, 0.2), 0 0 20px rgba(0, 212, 255, 0.1);
+            width: 100%;
+            max-width: 420px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            position: relative;
+            z-index: 1;
+        }
+        .login-box h1 {
+            color: #ffffff;
+            margin-bottom: 35px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: 600;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.3), 0 1px 2px rgba(0, 0, 0, 0.5);
+            letter-spacing: -0.3px;
+        }
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .form-group label {
+            color: #e0e6ed;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .form-group input {
+            background: rgba(20, 30, 50, 0.6);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            color: #e0e6ed;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(0, 212, 255, 0);
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #00d4ff;
+            background: rgba(25, 35, 55, 0.8);
+            box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2), inset 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 8px rgba(0, 212, 255, 0.15);
+        }
+        .form-group input::placeholder {
+            color: #858585;
+        }
+        .login-btn {
+            background: linear-gradient(135deg, #00b8d4 0%, #0097a7 100%);
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0, 184, 212, 0.3), 0 0 0 0 rgba(0, 212, 255, 0);
+            margin-top: 8px;
+        }
+        .login-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #00d4ff 0%, #00b8d4 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4), 0 0 12px rgba(0, 212, 255, 0.2);
+        }
+        .login-btn:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(0, 184, 212, 0.3);
+        }
+        .login-btn:disabled {
+            background: rgba(60, 60, 60, 0.5);
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .error-message {
+            color: #ff6b6b;
+            font-size: 13px;
+            text-align: center;
+            margin-top: 12px;
+            padding: 10px;
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-radius: 6px;
+            box-shadow: 0 0 8px rgba(255, 107, 107, 0.15);
+        }
+        
+        @keyframes fadeOutUp {
+            from {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(-30px) scale(0.95);
+            }
+        }
+        
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+            }
+            to {
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body style="background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%); margin: 0; padding: 0; overflow: hidden; min-height: 100vh;">
+    <div class="login-container">
+        <div class="login-box">
+            <h1>MLA-V3</h1>
+            <form class="login-form" id="login-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="login-btn" id="login-btn">Login</button>
+                <div id="error-message" class="error-message" style="display: none;"></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const loginForm = document.getElementById('login-form');
+        const loginBtn = document.getElementById('login-btn');
+        const errorMessage = document.getElementById('error-message');
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            
+            if (!username || !password) {
+                showError('Please enter username and password');
+                return;
+            }
+            
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Logging in...';
+            errorMessage.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    const loginBox = document.querySelector('.login-box');
+                    const loginContainer = document.querySelector('.login-container');
+                    
+                    loginBox.style.animation = 'fadeOutUp 0.8s ease-out forwards';
+                    loginContainer.style.animation = 'fadeOut 0.8s ease-out forwards';
+                    
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 350);
+                } else {
+                    showError(data.error || 'Login failed');
+                }
+            } catch (error) {
+                showError('Login failed: ' + error.message);
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Login';
+            }
+        });
+        
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+        
+        (async () => {
+            try {
+                const response = await fetch('/api/check-auth', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+                if (data.logged_in) {
+                    window.location.href = '/';
+                }
+            } catch (error) {
+                // Ignore error
+            }
+        })();
+    </script>
+</body>
+</html>

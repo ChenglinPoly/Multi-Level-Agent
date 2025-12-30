@@ -23,5 +23,4 @@ rich>=13.0.0            # 终端美化
 psutil>=5.9.0           # 进程管理
 PyMuPDF
 playwright>=1.40.0
-tempfile
 docx2pdf

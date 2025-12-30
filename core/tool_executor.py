@@ -73,8 +73,12 @@ class ToolExecutor:
             return
         
         try:
-            # 检查任务状态
-            status_url = f"{self.tools_server_url}/api/task/{task_id}/status"
+            # URL 编码 task_id（避免路径中的特殊字符和双斜杠问题）
+            from urllib.parse import quote
+            encoded_task_id = quote(task_id, safe='')
+            
+            # 检查任务状态（确保 URL 格式正确）
+            status_url = f"{self.tools_server_url}/api/task/{encoded_task_id}/status"
             response = requests.get(status_url, timeout=5)
             
             if response.status_code == 200:

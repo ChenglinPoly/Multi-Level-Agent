@@ -341,16 +341,9 @@ class InteractiveCLI:
     def _get_interrupted_task(self) -> dict:
         """获取中断的任务（检查 stack）"""
         try:
-            # 计算 task_id 的 hash（与 hierarchy_manager 一致）
-            task_hash = hashlib.md5(self.task_id.encode()).hexdigest()[:8]  # 8位，不是12位
-            
-            # 跨平台路径处理
-            task_folder = Path(self.task_id).name if (os.sep in self.task_id or '/' in self.task_id or '\\' in self.task_id) else self.task_id
-            task_name = f"{task_hash}_{task_folder}"
-            
-            # Stack 文件位置（与 hierarchy_manager 一致）
-            conversations_dir = Path.home() / "mla_v3" / "conversations"
-            stack_file = conversations_dir / f"{task_name}_stack.json"
+            # Stack 文件位置（与 hierarchy_manager 一致，存储在 task_id/conversations/ 下）
+            conversations_dir = Path(self.task_id) / "conversations"
+            stack_file = conversations_dir / "_stack.json"
             
             if not stack_file.exists():
                 return {"found": False, "message": f"没有找到中断的任务（文件不存在: {stack_file})"}

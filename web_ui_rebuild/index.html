@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLA-V3 - Web UI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-content">
+                <h1>MLA-V3</h1>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <span id="username-display" class="username-badge"></span>
+                    <button id="logout-btn" class="btn-secondary logout-btn">Logout</button>
+                </div>
+                <div class="controls">
+                    <div class="control-group">
+                        <label for="task-id">Task ID:</label>
+                        <div style="display: flex; gap: 8px; align-items: stretch;">
+                            <select id="task-select" style="min-width: 150px;">
+                                <option value="">Select existing task</option>
+                            </select>
+                            <input type="text" id="task-id" placeholder="task_name" value="" style="flex: 1;">
+                            <button id="confirm-task-btn" class="btn-primary">Confirm</button>
+                            <button id="clear-task-btn" class="btn-danger">Clear Task</button>
+                            <button id="copy-task-btn" class="btn-secondary">Copy Task</button>
+                            <button id="download-task-btn" class="btn-secondary">Download Task</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="chat-wrapper">
+                <div class="chat-container">
+                    <div id="messages" class="messages">
+                        <div class="welcome-message" id="welcome-message" style="display: none;">
+                            <p><i class="fas fa-hand-wave"></i> Welcome to MLA-V3 Web UI</p>
+                            <p>Please set Task ID above, then enter a task to start conversation.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea id="user-input" placeholder="Enter task description..." rows="2"></textarea>
+                        <button id="stop-btn" class="btn-danger" style="display: none;">Stop</button>
+                        <button id="send-btn" class="btn-primary">Send</button>
+                    </div>
+                    <div class="status-bar">
+                        <span id="status-text">Ready</span>
+                        <span id="workspace-path" class="workspace"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="file-browser">
+                <div class="file-browser-header">
+                    <h3><i class="fas fa-folder"></i> File Browser</h3>
+                    <div class="file-browser-actions">
+                        <button id="upload-file-btn" class="btn-icon" title="Upload file"><i class="fas fa-upload"></i></button>
+                        <button id="refresh-files-btn" class="btn-icon" title="Refresh"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                </div>
+                <div class="file-browser-path" id="file-browser-path">Path not set</div>
+                <div class="file-tree" id="file-tree">
+                    <div class="file-tree-empty">Please set Task ID to view files</div>
+                </div>
+                <div class="file-viewer" id="file-viewer" style="display: none;">
+                    <div class="file-viewer-header">
+                        <span id="file-viewer-title"></span>
+                        <div class="file-viewer-actions">
+                            <button id="download-file-btn" class="btn-icon" title="Download file"><i class="fas fa-download"></i></button>
+                            <button id="delete-file-btn" class="btn-icon" title="Delete file"><i class="fas fa-trash"></i></button>
+                            <button id="close-file-btn" class="btn-icon"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                    <div class="file-viewer-content" id="file-viewer-content"></div>
+                </div>
+                <input type="file" id="file-upload-input" style="display: none;" multiple>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            const savedTaskId = localStorage.getItem('mla_task_id');
+            const welcomeMsg = document.getElementById('welcome-message');
+            if (welcomeMsg) {
+                if (!savedTaskId || !savedTaskId.trim()) {
+                    welcomeMsg.style.display = '';
+                }
+            }
+        })();
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

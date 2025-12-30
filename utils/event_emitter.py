@@ -141,6 +141,28 @@ class EventEmitter:
             "artifacts": artifacts or []
         })
     
+    def tool_call(self, tool_name: str, parameters: Dict[str, Any]):
+        """工具调用事件"""
+        if not self.call_id:
+            return
+        self.emit({
+            "type": "tool_call",
+            "call_id": self.call_id,
+            "tool_name": tool_name,
+            "parameters": parameters
+        })
+    
+    def agent_call(self, agent_name: str, parameters: Dict[str, Any]):
+        """子 Agent 调用事件"""
+        if not self.call_id:
+            return
+        self.emit({
+            "type": "agent_call",
+            "call_id": self.call_id,
+            "agent_name": agent_name,
+            "parameters": parameters
+        })
+    
     def end(self, status: str, extra: Optional[Dict] = None):
         """任务结束"""
         if not self.call_id:

@@ -15,23 +15,31 @@ from datetime import datetime
 class ConversationStorage:
     """对话历史存储器"""
     
-    def __init__(self):
-        """初始化存储器 - 使用用户主目录（跨平台）"""
-        self.conversations_dir = Path.home() / "mla_v3" / "conversations"
+    def __init__(self, task_id: str = None):
+        """
+        初始化存储器
+        
+        Args:
+            task_id: 任务ID（绝对路径），如果提供则使用 task_id/conversations/，否则使用旧路径（向后兼容）
+        """
+        if task_id:
+            # 使用 task_id 下的 conversations 目录
+            self.conversations_dir = Path(task_id) / "conversations"
+        else:
+            # 向后兼容：如果没有提供 task_id，使用旧路径
+            self.conversations_dir = Path.home() / "mla_v3" / "conversations"
         self.conversations_dir.mkdir(parents=True, exist_ok=True)
+        self.task_id = task_id
     
     def _generate_filename(self, task_id: str, agent_id: str) -> str:
-        """生成对话文件名：hash + 最后文件夹名 + agent_id"""
-        from pathlib import Path
-        import hashlib
+        """生成对话文件名：直接使用 agent_id（不需要 hash，因为已经在 task_id 目录下了）"""
+        # 如果 task_id 与初始化时不同，使用新的 task_id（向后兼容）
+        if task_id and task_id != self.task_id:
+            conversations_dir = Path(task_id) / "conversations"
+            conversations_dir.mkdir(parents=True, exist_ok=True)
+            return str(conversations_dir / f"{agent_id}_actions.json")
         
-        task_hash = hashlib.md5(task_id.encode()).hexdigest()[:8]
-        # 跨平台路径处理：检查是否是路径（包含/或\）
-        import os
-        task_folder = Path(task_id).name if (os.sep in task_id or '/' in task_id or '\\' in task_id) else task_id
-        task_name = f"{task_hash}_{task_folder}"
-        
-        return str(self.conversations_dir / f"{task_name}_{agent_id}_actions.json")
+        return str(self.conversations_dir / f"{agent_id}_actions.json")
     
     def save_actions(self, task_id: str, agent_id: str, agent_name: str, 
                     task_input: str, action_history: List[Dict], current_turn: int,

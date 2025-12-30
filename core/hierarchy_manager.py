@@ -27,19 +27,13 @@ class HierarchyManager:
         self.task_id = task_id
         self.lock = threading.Lock()
         
-        # 文件路径 - 使用用户主目录（跨平台）
-        conversations_dir = Path.home() / "mla_v3" / "conversations"
+        # 文件路径 - 存储在 task_id 下的 conversations 目录
+        conversations_dir = Path(task_id) / "conversations"
         conversations_dir.mkdir(parents=True, exist_ok=True)
         
-        # 生成文件名：hash + 最后文件夹名
-        import hashlib
-        task_hash = hashlib.md5(task_id.encode()).hexdigest()[:8]
-        # 跨平台路径处理：检查是否是路径（包含/或\）
-        task_folder = Path(task_id).name if (os.sep in task_id or '/' in task_id or '\\' in task_id) else task_id
-        task_name = f"{task_hash}_{task_folder}"
-        
-        self.stack_file = conversations_dir / f'{task_name}_stack.json'
-        self.context_file = conversations_dir / f'{task_name}_share_context.json'
+        # 文件名：直接使用固定的文件名（不需要 hash，因为已经在 task_id 目录下了）
+        self.stack_file = conversations_dir / '_stack.json'
+        self.context_file = conversations_dir / '_share_context.json'
         
         # 初始化文件
         self._initialize_files()
