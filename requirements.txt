@@ -24,3 +24,4 @@ psutil>=5.9.0           # 进程管理
 PyMuPDF
 playwright>=1.40.0
 docx2pdf
+pytest>=7.0.0
