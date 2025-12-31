@@ -40,8 +40,11 @@
 - 🔬 **完整研究流程**：文献收集、实验设计、图表生成和论文撰写
 
 ### 动态
+- 现已支持web ui多用户模式。拉取最新镜像网chenglinhku/mlav3进行体验，webui目前属测试阶段存在不稳定因素，最新镜像同时接收cli模式，详见quickstart教程
 
-- 现在已支持 gemini api。重新拉取仓库，mla-tool-server restart，或者重新拉取 docker 即可生效。配置文件参考配置文件夹 gemini 开头的样板格式。
+- 现已支持阿里云api包括qwen，适配绝大部分第三方中转站。配置详情请卡config文件夹对应的参考文件。
+
+- 现在已支持 gemini api。重新拉取仓库，mla-tool-server restart，或者重新拉取 docker 即可生效。配置文件参考配置文件夹 gemini 开头的样板格式。2025/12/31
 
 注意目前只支持 python 编程，早期版本execute_command只支持只读命令，目前已经支持所有命令（包括删除等危险命令），推荐在 docker 环境下使用。
 
@@ -113,7 +116,17 @@ docker run -d --name mla \
   chenglinhku/mlav3:latest webui && docker logs -f mla
 ```
 
+打开浏览器：http://localhost:9641 设置配置文件
 然后打开浏览器：`http://localhost:4242`
+
+默认用户名 user
+默认密码 password
+
+
+
+<p align="center">
+  <img src="assets/web_ui.png" alt="Paper Generation Demo 2" width="800">
+</p>
 
 ### 方式 B: CLI 模式
 
