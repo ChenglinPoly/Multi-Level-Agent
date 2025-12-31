@@ -39,7 +39,10 @@ The default configuration in this repository is a **research-oriented semi-speci
 
 ### Update
 
-- support gemini api key from google ai studio now. Please See the gemini config in dir.
+- support web_ui and qwen api. Also fix some problem when using third part oepnai format api. please using latest chenglinhku/mlav3 docker image and see the example configs.
+
+- support gemini api key from google ai studio now. Please See the gemini config in dir. 2025/12/31
+
 
 Attention: Current coding task only support python project. Other language may supported later. In old version execute_command only support safe command like cd or grep，now it include every commands including rm. Please try to use it in docker mode if your task may edit system file.
 
@@ -93,8 +96,7 @@ docker pull chenglinhku/mlav3:latest
 **3. Choose Your Mode**
 
 ### Option A: Web UI Mode (Recommended)
-open localhost:9641 to set keys and baseurl.
-open localhost:4242 to use web UI.
+open localhost:9641 to set keys and base url.
 
 ```bash
 cd /your/workspace
@@ -112,6 +114,11 @@ docker run -d --name mla \
 ```
 
 Then open browser: `http://localhost:4242`
+default username：user defaultpassword：password
+
+<p align="center">
+  <img src="assets/web_ui.png" alt="Paper Generation Demo 2" width="800">
+</p>
 
 ### Option B: CLI Mode
 
