@@ -271,7 +271,7 @@ class ContextBuilder:
 - 每个描述要简洁明了
 {"- 优先详细介绍与当前任务相关的历史内容" if current_task else ""}
 - 总字符数控制在3000字以内
-- 使用中文输出
+- 优先使用用户的输入习惯语言进行输出。
 - 直接输出总结内容文本，不需要任何标记，不要使用markdown格式"""
 
         from services.llm_client import ChatMessage
