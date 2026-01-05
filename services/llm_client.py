@@ -9,8 +9,7 @@ import os
 import yaml
 import time
 import json
-import threading
-import queue
+import concurrent.futures
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +73,11 @@ class SimpleLLMClient:
         self.max_tokens = self.config.get("max_tokens", 0)
         self.max_context_window = self.config.get("max_context_window", 100000)  # 上下文窗口限制
         
+        # 读取超时配置（默认值：600s, 20s, 20s）
+        self.timeout = self.config.get("timeout", 600)  # LiteLLM 原生：总超时
+        self.stream_timeout = self.config.get("stream_timeout", 20)  # LiteLLM 原生：流式超时
+        self.first_chunk_timeout = self.config.get("first_chunk_timeout", 20)  # 应用层强制：首包超时
+        
         # 解析模型配置（支持两种格式）
         self.models = []  # 模型名称列表
         self.figure_models = []
@@ -108,6 +112,7 @@ class SimpleLLMClient:
         safe_print(f"   Compressor模型: {len(self.compressor_models)} 个")
         safe_print(f"   默认Temperature: {self.temperature}")
         safe_print(f"   默认Max Tokens: {self.max_tokens}")
+        safe_print(f"   超时配置: timeout={self.timeout}s, stream_timeout={self.stream_timeout}s, first_chunk_timeout={self.first_chunk_timeout}s")
     
     def _parse_models_config(self, models_config: List, target_list: List):
         """
@@ -257,9 +262,8 @@ class SimpleLLMClient:
         max_tokens: int
     ) -> LLMResponse:
         """
-        LLM调用的内部实现（单次尝试，不含重试逻辑）
+        LLM调用的内部实现（使用 LiteLLM 原生超时机制）
         """
-        
         try:
             # 构建工具定义（OpenAI格式）
             tools_definition = self._build_tools_definition(tool_list)
@@ -274,10 +278,13 @@ class SimpleLLMClient:
                 "messages": messages,
                 "temperature": temperature,
                 "api_key": self.api_key,
-                "stream": True,  # 关键：强制开启流式模式
+                "stream": True,  # 启用流式模式
+                # --- LiteLLM 原生超时设定（从配置文件读取）---
+                "timeout": self.timeout,              # 建立连接及整体响应的最大等待时间（秒）
+                "stream_timeout": self.stream_timeout,  # 两个流式数据块（chunk）之间的最大间隔时间（秒）
             }
             
-            # 只在 base_url 非空时添加 api_base（对于 Google/Anthropic 等官方 API，留空让 litellm 自动路由）
+            # 只在 base_url 非空时添加 api_base
             if self.base_url:
                 kwargs["api_base"] = self.base_url
             
@@ -292,162 +299,182 @@ class SimpleLLMClient:
                     kwargs["tool_choice"] = "required"
                 kwargs["parallel_tool_calls"] = False
             elif tool_choice == "none":
-                # 明确告诉模型不要使用工具（即使没有提供工具列表）
                 kwargs["tool_choice"] = "none"
             
             # 添加模型特定的额外参数
             model_extra_params = self.model_configs.get(model, {})
             if model_extra_params:
-                # 处理 provider 参数（OpenRouter 特定）
                 if "provider" in model_extra_params:
                     if "extra_body" not in kwargs:
                         kwargs["extra_body"] = {}
                     kwargs["extra_body"]["provider"] = model_extra_params["provider"]
                 
-                # 处理 extra_headers
                 if "extra_headers" in model_extra_params:
                     kwargs["extra_headers"] = model_extra_params["extra_headers"]
                 
-                # 处理 extra_body（合并到已有的 extra_body）
                 if "extra_body" in model_extra_params:
                     if "extra_body" not in kwargs:
                         kwargs["extra_body"] = {}
                     kwargs["extra_body"].update(model_extra_params["extra_body"])
-                
-                # safe_print(f"   ⚙️  应用模型额外参数: {list(model_extra_params.keys())}")
             
-            # 添加调试信息
-            # safe_print(f"   📝 System Prompt长度: {len(system_prompt)} 字符")
-            # safe_print(f"   🔧 工具数量: {len(tools_definition)}")
-            # safe_print(f"   📨 消息数量: {len(messages)}")
-            # safe_print(f"   🌊 流式调用LLM (监控假死)...")
+            # 发起流式请求（LiteLLM 会根据 timeout 和 stream_timeout 自动管理超时）
+            safe_print(f"   🌊 正在调用LLM (timeout={kwargs['timeout']}s, stream_timeout={kwargs['stream_timeout']}s)...")
+            safe_print(f"   📨 请求模型: {model}")
+            safe_print(f"   🛠️ 工具数量: {len(tools_definition)}")
+            safe_print(f"   📝 消息数: {len(messages)}")
+            request_start_time = time.time()
             
-            # 添加 timeout（防止建立连接阶段卡死）
-            # litellm 使用 timeout 参数（不是 request_timeout！）
-            kwargs["timeout"] = 60  # 60秒总超时（包括建立连接 + 第一个响应）
-            # safe_print("📝,正式请求（timeout=60秒）")
-            # 1. 发起流式请求
-            response_iterator = completion(**kwargs)
-            
-            # safe_print("📝,正式请求2")
-            # 2. 累积变量
+            # 累积变量
             accumulated_content = ""
             accumulated_tool_calls = {}  # index -> {id, name, arguments}
             finish_reason = "unknown"
             response_model = model
             
-            # 3. 监控配置
-            STREAM_TIMEOUT = 45  # 45秒无数据则判定为假死
-            
-            # 线程共享状态
-            shared_state = {
-                "last_chunk_time": time.time(),
-                "finished": False
-            }
-            
-            # 使用队列解耦消费者和生成器
-            chunk_queue = queue.Queue()
-            
-            def consume_stream():
-                """后台线程：消费生成器并将数据放入队列"""
-                try:
-                    for chunk in response_iterator:
-                        if shared_state["finished"]:
-                            break
-                        chunk_queue.put(chunk)
-                    chunk_queue.put(None)  # 结束标志
-                except Exception as e:
-                    if not shared_state["finished"]:
-                        chunk_queue.put(e)
-            
-            # 启动消费线程
-            consumer_thread = threading.Thread(target=consume_stream, daemon=True)
-            consumer_thread.start()
-            
-            # 4. 消费流（主循环：从队列读取并监控超时）
             chunk_count = 0
             
-            while True:
-                try:
-                    # safe_print(f"📝time 1")
-                    
-                    # 1秒超时，定期检查是否假死
-                    item = chunk_queue.get(timeout=0.5)
-                    
-                    if item is None:  # 正常结束
-                        break
-                    
-                    if isinstance(item, Exception):  # 发生错误
-                        raise item
-                    
-                    # 收到数据，重置计时器
-                    shared_state["last_chunk_time"] = time.time()
-                    chunk = item
-                    chunk_count += 1
-                    
-                    # 提取模型信息
-                    if hasattr(chunk, 'model'):
-                        response_model = chunk.model
-                    
-                    if not chunk.choices:
-                        continue
+            # --- 强制首包超时检测（包含 completion 调用以防止连接池死锁）---
+            try:
+                # 定义完整的初始化和首包获取函数（防止 httpx 连接池锁死锁）
+                def get_response_and_first_chunk():
+                    iterator = completion(**kwargs)
+                    first = next(iterator)
+                    return iterator, first
+                
+                # 强制首包超时时间（秒），包含连接建立+首包接收，防止 httpx 连接池死锁
+                first_chunk_timeout = self.first_chunk_timeout  # 从配置文件读取
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(get_response_and_first_chunk)
+                    try:
+                        # 强制等待整个初始化过程（包括 completion 调用）
+                        response_iterator, first_chunk = future.result(timeout=first_chunk_timeout)
                         
-                    delta = chunk.choices[0].delta
-                    
-                    # A. 累积文本内容
-                    if hasattr(delta, 'content') and delta.content:
-                        accumulated_content += delta.content
-                        # safe_print(f"📝{delta.content}", flush=True, end='')
-                    
-                    # B. 累积工具调用
-                    if hasattr(delta, 'tool_calls') and delta.tool_calls:
-                        for tc in delta.tool_calls:
+                        # 处理首包
+                        chunk_count += 1
+                        latency = time.time() - request_start_time
+                        safe_print(f"   ⚡️ 首包延迟: {latency:.2f}s")
+                        
+                        # 处理首包逻辑
+                        if hasattr(first_chunk, 'model'):
+                            response_model = first_chunk.model
+                        
+                        # 打印首包
+                        try:
+                            safe_print(f"\n[chunk #1] {first_chunk}", flush=True)
+                        except Exception:
+                            pass
+
+                        if first_chunk.choices:
+                            delta = first_chunk.choices[0].delta
+                            if hasattr(delta, 'content') and delta.content:
+                                accumulated_content += delta.content
+                                try:
+                                    safe_print(delta.content, end="", flush=True)
+                                except Exception:
+                                    pass
                             
-                            idx = tc.index
-                            if idx not in accumulated_tool_calls:
-                                accumulated_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
-                            # safe_print(f"\n📝 [TC #{idx}] ", flush=True, end='')
-                            if tc.id:
-                                accumulated_tool_calls[idx]["id"] = tc.id
-                            if tc.function and tc.function.name:
-                                accumulated_tool_calls[idx]["name"] += tc.function.name
-                            if tc.function and tc.function.arguments:
-                                accumulated_tool_calls[idx]["arguments"] += tc.function.arguments
-                                # 统一流式输出：工具参数也直接输出
-                                # safe_print(f"{tc.function.arguments}", flush=True, end='')
-                    
-                    # C. 记录结束原因
-                    if chunk.choices[0].finish_reason:
-                        finish_reason = chunk.choices[0].finish_reason
-                        
-                except queue.Empty:
-                    # 队列超时（1秒无数据），检查是否总超时
-                    elapsed = time.time() - shared_state["last_chunk_time"]
-                    if elapsed > STREAM_TIMEOUT:
-                        shared_state["finished"] = True
-                        raise TimeoutError(f"LLM连接假死: 超过 {STREAM_TIMEOUT} 秒未收到数据")
+                            if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                                for tc in delta.tool_calls:
+                                    idx = tc.index
+                                    if idx not in accumulated_tool_calls:
+                                        accumulated_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
+                                    if tc.id:
+                                        accumulated_tool_calls[idx]["id"] = tc.id
+                                    if tc.function and tc.function.name:
+                                        accumulated_tool_calls[idx]["name"] += tc.function.name
+                                    if tc.function and tc.function.arguments:
+                                        accumulated_tool_calls[idx]["arguments"] += tc.function.arguments
+                                    
+                                    try:
+                                        tc_args_preview = tc.function.arguments[:200] if tc.function and tc.function.arguments else ""
+                                        safe_print(f"\n[tool_call #{idx}] {tc.function.name}: {tc_args_preview}", flush=True)
+                                    except Exception:
+                                        pass
+                                        
+                            if first_chunk.choices[0].finish_reason:
+                                finish_reason = first_chunk.choices[0].finish_reason
+
+                    except concurrent.futures.TimeoutError:
+                        raise TimeoutError(f"连接建立或首包接收超时（超过 {first_chunk_timeout}s）- 可能原因：httpx连接池死锁、网络断开、服务器无响应")
+            
+            except StopIteration:
+                safe_print("   ⚠️ 响应为空（无数据块）")
+                return LLMResponse(
+                    status="error",
+                    output="",
+                    tool_calls=[],
+                    model=model,
+                    finish_reason="empty",
+                    error_information="Empty response - no chunks received"
+                )
+            
+            # --- 继续处理剩余 chunk ---
+            # 直接迭代流式响应（LiteLLM 会自动处理后续的 stream_timeout）
+            for chunk in response_iterator:
+                chunk_count += 1
+                # 全量打印 chunk（方便观察断联和增量内容，可能较噪声）
+                try:
+                    safe_print(f"\n[chunk #{chunk_count}] {chunk}", flush=True)
+                except Exception:
+                    pass
+                
+                # 提取模型信息
+                if hasattr(chunk, 'model'):
+                    response_model = chunk.model
+                
+                if not chunk.choices:
                     continue
+                    
+                delta = chunk.choices[0].delta
+                
+                # A. 累积文本内容
+                if hasattr(delta, 'content') and delta.content:
+                    accumulated_content += delta.content
+                    # 直接流式打印模型文本片段，便于无 CLI 时观察进度
+                    try:
+                        safe_print(delta.content, end="", flush=True)
+                    except Exception:
+                        pass
+                
+                # B. 累积工具调用
+                if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in accumulated_tool_calls:
+                            accumulated_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
+                        
+                        if tc.id:
+                            accumulated_tool_calls[idx]["id"] = tc.id
+                        if tc.function and tc.function.name:
+                            accumulated_tool_calls[idx]["name"] += tc.function.name
+                        if tc.function and tc.function.arguments:
+                            accumulated_tool_calls[idx]["arguments"] += tc.function.arguments
+                        
+                        # 工具调用流式打印：名称与参数增量，便于无 CLI 时跟踪
+                        try:
+                            tc_args_preview = tc.function.arguments[:200] if tc.function and tc.function.arguments else ""
+                            safe_print(f"\n[tool_call #{idx}] {tc.function.name}: {tc_args_preview}", flush=True)
+                        except Exception:
+                            pass
+                
+                # C. 记录结束原因
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
             
-            # 标记完成
-            shared_state["finished"] = True
+            safe_print(f"   ✅ 流式响应完成，共接收 {chunk_count} 个数据块")
             
-            # 流式输出完成后换行
-            safe_print("")  # 换行，分隔LLM输出和后续日志
-            
-            # 5. 构建最终的 ToolCall 对象列表
+            # 构建最终的 ToolCall 对象列表
             final_tool_calls = []
             for idx in sorted(accumulated_tool_calls.keys()):
                 tc_data = accumulated_tool_calls[idx]
                 
                 try:
-                    # 解析完整的 JSON 参数字符串
                     args_str = tc_data["arguments"]
                     if not args_str:
                         args = {}
                     else:
                         args = json.loads(args_str)
                 except json.JSONDecodeError as e:
-                    # 仅在解析失败时输出错误信息
                     safe_print(f"\n⚠️ 工具参数JSON解析失败: {str(e)}")
                     safe_print(f"   原始参数: {tc_data['arguments'][:200]}...")
                     
@@ -465,39 +492,40 @@ class SimpleLLMClient:
                     arguments=args
                 ))
             
-            # 6. 返回标准响应对象
             return LLMResponse(
                 status="success",
                 output=accumulated_content,
                 tool_calls=final_tool_calls,
                 model=response_model,
-                finish_reason=finish_reason,
-                usage=None  # 流式模式下 usage 信息需特殊处理，暂置空
+                finish_reason=finish_reason
             )
         
-        except TimeoutError as e:
-            # 捕获我们自己抛出的超时
-            safe_print(f"⏱️  LLM超时: {e}")
-            return LLMResponse(
-                status="error",
-                output="",
-                tool_calls=[],
-                model=model,
-                finish_reason="timeout",
-                error_information=str(e)
-            )
-            
         except Exception as e:
+            # 捕获所有异常，包括 LiteLLM 抛出的超时异常
+            error_msg = str(e)
+            is_timeout = any(keyword in error_msg.lower() for keyword in ["timeout", "timed out", "time out"])
+            
+            if is_timeout:
+                safe_print(f"⏱️  LLM调用超时 (原生超时机制)")
+                safe_print(f"   超时详情: {error_msg}")
+                safe_print(f"   💡 提示: 如果频繁超时，可能是：")
+                safe_print(f"      1. 网络连接不稳定")
+                safe_print(f"      2. 上下文过长导致 API 响应缓慢")
+                safe_print(f"      3. API 服务商限流或过载")
+            else:
+                safe_print(f"❌ LLM调用异常: {error_msg}")
+            
+            # 返回包含详细错误信息的响应
             import traceback
             error_detail = traceback.format_exc()
-            safe_print(f"❌ LLM调用异常: {e}")
+            
             return LLMResponse(
                 status="error",
                 output="",
                 tool_calls=[],
                 model=model,
-                finish_reason="error",
-                error_information=f"{str(e)}\n\nDetails:\n{error_detail}"
+                finish_reason="timeout" if is_timeout else "error",
+                error_information=f"{error_msg}\n\nDetails:\n{error_detail}"
             )
     
     def set_tools_config(self, tools_config: Dict):
