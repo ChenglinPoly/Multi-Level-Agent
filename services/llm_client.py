@@ -294,11 +294,12 @@ class SimpleLLMClient:
             
             # 添加工具定义（只有当工具列表非空时才添加工具相关参数）
             if tools_definition:
+                # 工具列表非空：正常添加工具参数
                 kwargs["tools"] = tools_definition
                 if tool_choice == "required":
                     kwargs["tool_choice"] = "required"
                 kwargs["parallel_tool_calls"] = False
-            # 注意：当 tools_definition 为空时，不添加任何工具相关参数
+            # 注意：当 tools_definition 为空时，即使 tool_choice="none" 也不添加任何参数
             # 这避免了 API 错误：When using `tool_choice`, `tools` must be set
             
             # 添加模型特定的额外参数
