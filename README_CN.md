@@ -18,6 +18,31 @@
 
 ---
 
+## 📄 论文
+
+本项目基于以下研究论文：
+
+**InfiAgent: An Infinite-Horizon Framework for General-Purpose Autonomous Agents**  
+（InfiAgent：面向通用自主智能体的无限时域框架）  
+Chenglin Yu, Yuchen Wang, Songmiao Wang, Hongxia Yang, Ming Li  
+*arXiv preprint arXiv:2601.03204, 2026*
+
+**论文链接：** [https://arxiv.org/abs/2601.03204](https://arxiv.org/abs/2601.03204)  
+**GitHub：** [https://github.com/ChenglinPoly/infiAgent](https://github.com/ChenglinPoly/infiAgent)
+
+### BibTeX 引用
+
+```bibtex
+@article{yu2026infiagent,
+  title={InfiAgent: An Infinite-Horizon Framework for General-Purpose Autonomous Agents},
+  author={Yu, Chenglin and Wang, Yuchen and Wang, Songmiao and Yang, Hongxia and Li, Ming},
+  journal={arXiv preprint arXiv:2601.03204},
+  year={2026}
+}
+```
+
+---
+
 ## 🌟 简介
 
 **infiAgent 也称为 MLA (Multi-Level Agent，多层级智能体)** 是一个专为**无限时长运行**设计的智能体框架，不会因为任务资源累积和对话历史增长而导致工具调用混乱或系统崩溃。使用 MLA，你只需编写配置文件即可构建强大的通用或半专业化智能体。
